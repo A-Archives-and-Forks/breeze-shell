@@ -132,11 +132,18 @@ std::vector<std::string> extract_hotkeys(const std::string &name) {
     return keys;
 }
 
-menu menu::construct_with_hmenu(HMENU hMenu, HWND hWnd, bool is_top) {
+menu menu::construct_with_hmenu(
+    HMENU hMenu, HWND hWnd, bool is_top,
+    std::function<void(int, WPARAM, LPARAM)> HandleMenuMsg) {
     menu m;
 
-    SendMessageW(hWnd, WM_INITMENUPOPUP, reinterpret_cast<WPARAM>(hMenu),
-                 0xFFFFFFFF);
+    if (!HandleMenuMsg)
+        HandleMenuMsg = [=](int message, WPARAM wParam, LPARAM lParam) {
+            SendMessageW(hWnd, message, wParam, lParam);
+        };
+
+    HandleMenuMsg(WM_INITMENUPOPUP, reinterpret_cast<WPARAM>(hMenu),
+                  0xFFFFFFFF);
     for (int i = 0; i < GetMenuItemCount(hMenu); i++) {
         menu_item item;
         wchar_t buffer[256];
@@ -169,13 +176,14 @@ menu menu::construct_with_hmenu(HMENU hMenu, HWND hWnd, bool is_top) {
         }
 
         if (info.hSubMenu) {
-            PostMessageW(hWnd, WM_INITMENUPOPUP,
-                         reinterpret_cast<WPARAM>(info.hSubMenu), 0xFFFFFFFF);
             auto main_thread_id = GetCurrentThreadId();
             item.submenu = [=](std::shared_ptr<menu_widget> mw) {
                 auto task = [&]() {
-                    mw->init_from_data(
-                        menu::construct_with_hmenu(info.hSubMenu, hWnd, false));
+                    HandleMenuMsg(WM_INITMENUPOPUP,
+                                  reinterpret_cast<WPARAM>(info.hSubMenu),
+                                  0xFFFFFFFF);
+                    mw->init_from_data(menu::construct_with_hmenu(
+                        info.hSubMenu, hWnd, false, HandleMenuMsg));
                 };
                 if (main_thread_id == GetCurrentThreadId())
                     task();

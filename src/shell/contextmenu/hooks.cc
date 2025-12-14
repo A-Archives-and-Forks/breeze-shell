@@ -31,8 +31,7 @@ mb_shell::track_popup_menu(mb_shell::menu menu, int x, int y,
             set_thread_name("breeze::context_menu_renderer");
             perf_counter perf("mb_shell::track_popup_menu");
 
-            bool shift_pressed =
-                (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+            bool shift_pressed = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
 
             auto menu_render = menu_render::create(x, y, menu, run_js);
             menu_render.rt->last_time = menu_render.rt->clock.now();
@@ -78,7 +77,6 @@ mb_shell::track_popup_menu(mb_shell::menu menu, int x, int y,
     qjs::wait_with_msgloop([&]() { selected_menu_future.wait(); });
 
     auto selected_menu = selected_menu_future.get();
-    mb_shell::context_menu_hooks::block_js_reload.fetch_sub(1);
 
     return selected_menu;
 }
@@ -112,7 +110,7 @@ void mb_shell::context_menu_hooks::install_common_hook() {
             PostMessageW(hWnd, WM_COMMAND, *selected_menu, 0);
             PostMessageW(hWnd, WM_NULL, 0, 0);
         }
-
+        mb_shell::context_menu_hooks::block_js_reload.fetch_sub(1);
         return (int32_t)selected_menu.value_or(0);
     });
 }
@@ -224,40 +222,46 @@ void mb_shell::context_menu_hooks::install_SHCreateDefaultContextMenu_hook() {
             auto res = SHCreateDefaultContextMenu(def, riid, ppv);
             SHCreateDefaultContextMenuHook->install();
 
-            IContextMenu *pdcm = (IContextMenu *)*ppv;
+            IContextMenu *pdcm = (IContextMenu *)(*ppv);
             if (SUCCEEDED(res) && pdcm) {
-                IContextMenu2 *pcm2 = NULL;
-
-                int pcmType = 0;
-                UpgradeContextMenu(pdcm, reinterpret_cast<void **>(&pcm2),
-                                   &pcmType);
-
-                IContextMenu *pCM(pcm2);
+                CComPtr<IContextMenu> pCM(pdcm);
 
                 HMENU hmenu = CreatePopupMenu();
                 pCM->QueryContextMenu(hmenu, 0, 1, 0x7FFF,
                                       CMF_EXPLORE | CMF_CANRENAME);
 
-                POINT pt;
-                GetCursorPos(&pt);
+                CComPtr<IContextMenu2> pCM2 = NULL;
+                if (SUCCEEDED(pCM->QueryInterface(&pCM2))) {
+                    POINT pt;
+                    GetCursorPos(&pt);
+                    auto hwndOwner = def->hwnd;
+                    entry::main_window_loop_hook.install(hwndOwner);
+                    block_js_reload.fetch_add(1);
+                    perf_counter perf("TrackPopupMenuEx");
+                    menu menu = menu::construct_with_hmenu(
+                        hmenu, hwndOwner, true,
+                        [=](int message, WPARAM wParam, LPARAM lParam) {
+                            pCM2->HandleMenuMsg(message, wParam, lParam);
+                        });
+                    perf.end("construct_with_hmenu");
 
-                int res = TrackPopupMenuEx(
-                    hmenu, TPM_LEFTALIGN | TPM_RIGHTBUTTON | TPM_RETURNCMD,
-                    pt.x, pt.y, def->hwnd, NULL);
+                    auto selected_menu = track_popup_menu(menu, pt.x, pt.y);
+                    mb_shell::context_menu_hooks::block_js_reload.fetch_sub(1);
 
-                if (res > 0) {
-                    CMINVOKECOMMANDINFOEX ici = {};
-                    ici.cbSize = sizeof(CMINVOKECOMMANDINFOEX);
-                    ici.hwnd = def->hwnd;
-                    ici.fMask = 0x100000; /* CMIC_MASK_UNICODE */
-                    ici.lpVerb = MAKEINTRESOURCEA(res - 1);
-                    ici.lpVerbW = MAKEINTRESOURCEW(res - 1);
-                    ici.nShow = SW_SHOWNORMAL;
+                    if (selected_menu) {
+                        CMINVOKECOMMANDINFOEX ici = {};
+                        ici.cbSize = sizeof(CMINVOKECOMMANDINFOEX);
+                        ici.hwnd = hwndOwner;
+                        ici.fMask = 0x100000; /* CMIC_MASK_UNICODE */
+                        ici.lpVerb = MAKEINTRESOURCEA(*selected_menu - 1);
+                        ici.lpVerbW = MAKEINTRESOURCEW(*selected_menu - 1);
+                        ici.nShow = SW_SHOWNORMAL;
 
-                    pCM->InvokeCommand((LPCMINVOKECOMMANDINFO)&ici);
+                        pCM->InvokeCommand((LPCMINVOKECOMMANDINFO)&ici);
+                    }
+
+                    close_next_create_window_exw_window = true;
                 }
-
-                close_next_create_window_exw_window = true;
             }
 
             return res;

@@ -1,5 +1,5 @@
 <XenosConfig>
-	<imagePath>D:\breeze-shell\build\windows\x64\releasedbg\shell.dll</imagePath>
+	<imagePath>E:\breeze-shell\build\windows\x64\releasedbg\shell.dll</imagePath>
 	<manualMapFlags>0</manualMapFlags>
 	<procName>OneCommander.exe</procName>
 	<hijack>0</hijack>
