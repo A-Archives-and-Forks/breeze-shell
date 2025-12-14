@@ -267,3 +267,130 @@ void mb_shell::context_menu_hooks::install_SHCreateDefaultContextMenu_hook() {
             return res;
         });
 }
+
+#pragma optimize("", off)
+extern "C" __declspec(dllexport) size_t
+functionToGetGetUIObjectOfVptr(IShellFolder2 *i) {
+    return i->GetUIObjectOf(nullptr, 0, nullptr, IID_IContextMenu, nullptr,
+                            nullptr);
+}
+#pragma optimize("", on)
+void mb_shell::context_menu_hooks::install_GetUIObjectOf_hook() {
+    // For OneCommander
+
+    auto proc = blook::Process::self();
+    auto shell32 = proc->module("shell32.dll");
+    auto SHELL32_SHCreateDefaultContextMenu =
+        shell32.value()->exports("SHELL32_SHCreateDefaultContextMenu");
+
+    static std::atomic_bool close_next_create_window_exw_window = false;
+
+    IShellFolder *psfDesktop = NULL;
+    IShellFolder2 *psf2Desktop = NULL;
+    if (NOERROR != SHGetDesktopFolder(&psfDesktop)) {
+        std::cerr << "Failed to get desktop shell folder" << std::endl;
+        return;
+    }
+    psfDesktop->QueryInterface(IID_IShellFolder2, (void **)&psf2Desktop);
+    psfDesktop->Release();
+
+    // patch 'call' in functionToGetGetUIObjectOfVptr to 'mov rax, ptr' to get
+    // the real function called
+    auto disasmFuncGetVptr =
+        blook::Pointer((void *)&functionToGetGetUIObjectOfVptr)
+            .range_size(0x50)
+            .disassembly();
+
+    std::optional<size_t> stackSize;
+    for (auto &inst : disasmFuncGetVptr) {
+        if (inst->getMnemonic() == zasm::x86::Mnemonic::Sub && !stackSize)
+            stackSize = inst->getOperand(1).get<zasm::Imm>().value<size_t>();
+
+        if (inst->getMnemonic() == zasm::x86::Mnemonic::Call) {
+            inst.ptr()
+                .reassembly([&](zasm::x86::Assembler a) {
+                    a.mov(zasm::x86::rax, inst->getOperand(0).get<zasm::Mem>());
+                    a.add(zasm::x86::rsp, *stackSize);
+                    a.ret();
+                })
+                .patch();
+            break;
+        }
+    }
+
+    auto pGetUIObjectOf =
+        blook::Pointer((void *)functionToGetGetUIObjectOfVptr(psf2Desktop));
+    std::println("GetUIObjectOf ptr: {}", pGetUIObjectOf.data());
+
+    /**
+     prototype:
+HRESULT GetUIObjectOf(
+  [in]      HWND                  hwndOwner,
+  [in]      UINT                  cidl,
+  [in]      PCUITEMID_CHILD_ARRAY apidl,
+  [in]      REFIID                riid,
+  [in, out] UINT                  *rgfReserved,
+  [out]     void                  **ppv
+);
+
+    https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nf-shobjidl_core-ishellfolder-getuiobjectof
+     */
+    static auto GetUIObjectOfHook = pGetUIObjectOf.as_function().inline_hook();
+    GetUIObjectOfHook->install(+[](void *thiz, HWND hwndOwner, UINT cidl,
+                                   PCUITEMID_CHILD_ARRAY apidl, REFIID riid,
+                                   UINT *rgfReserved, void **ppv) -> HRESULT {
+        std::println("GetUIObjectOf called");
+        auto res = GetUIObjectOfHook->call_trampoline<HRESULT>(
+            thiz, hwndOwner, cidl, apidl, riid, rgfReserved, ppv);
+
+        // only proceed if requesting IContextMenu
+        if (riid != IID_IContextMenu || !ppv || !*ppv) {
+            return res;
+        }
+
+        std::println("Upgrading context menu");
+        IContextMenu *pdcm = (IContextMenu *)(*ppv);
+        if (SUCCEEDED(res) && pdcm) {
+            CComPtr<IContextMenu> pCM(pdcm);
+
+            HMENU hmenu = CreatePopupMenu();
+            pCM->QueryContextMenu(hmenu, 0, 1, 0x7FFF,
+                                  CMF_EXPLORE | CMF_CANRENAME);
+
+            CComPtr<IContextMenu2> pCM2 = NULL;
+            if (SUCCEEDED(pCM->QueryInterface(&pCM2))) {
+                POINT pt;
+                GetCursorPos(&pt);
+                entry::main_window_loop_hook.install(hwndOwner);
+                block_js_reload.fetch_add(1);
+                perf_counter perf("TrackPopupMenuEx");
+                menu menu = menu::construct_with_hmenu(
+                    hmenu, hwndOwner, true,
+                    [=](int message, WPARAM wParam, LPARAM lParam) {
+                        pCM2->HandleMenuMsg(message, wParam, lParam);
+                    });
+                perf.end("construct_with_hmenu");
+
+                auto selected_menu = track_popup_menu(menu, pt.x, pt.y);
+                mb_shell::context_menu_hooks::block_js_reload.fetch_sub(1);
+
+                if (selected_menu) {
+                    CMINVOKECOMMANDINFOEX ici = {};
+                    ici.cbSize = sizeof(CMINVOKECOMMANDINFOEX);
+                    ici.hwnd = hwndOwner;
+                    ici.fMask = 0x100000; /* CMIC_MASK_UNICODE */
+                    ici.lpVerb = MAKEINTRESOURCEA(*selected_menu - 1);
+                    ici.lpVerbW = MAKEINTRESOURCEW(*selected_menu - 1);
+                    ici.nShow = SW_SHOWNORMAL;
+
+                    pCM->InvokeCommand((LPCMINVOKECOMMANDINFO)&ici);
+                }
+
+                close_next_create_window_exw_window = true;
+            }
+        }
+
+        return res;
+    });
+    std::println("GetUIObjectOf hook installed");
+}
