@@ -221,6 +221,9 @@ void mb_shell::context_menu_hooks::install_SHCreateDefaultContextMenu_hook() {
             SHCreateDefaultContextMenuHook->uninstall();
             auto res = SHCreateDefaultContextMenu(def, riid, ppv);
             SHCreateDefaultContextMenuHook->install();
+            if (riid != IID_IContextMenu || !ppv || !*ppv || !def || !def->hwnd) {
+                return res;
+            }
 
             IContextMenu *pdcm = (IContextMenu *)(*ppv);
             if (SUCCEEDED(res) && pdcm) {
@@ -279,9 +282,6 @@ void mb_shell::context_menu_hooks::install_GetUIObjectOf_hook() {
     // For OneCommander
 
     auto proc = blook::Process::self();
-    auto shell32 = proc->module("shell32.dll");
-    auto SHELL32_SHCreateDefaultContextMenu =
-        shell32.value()->exports("SHELL32_SHCreateDefaultContextMenu");
 
     static std::atomic_bool close_next_create_window_exw_window = false;
 
