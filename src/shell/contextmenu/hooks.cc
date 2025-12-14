@@ -81,7 +81,7 @@ mb_shell::track_popup_menu(mb_shell::menu menu, int x, int y,
     return selected_menu;
 }
 
-void mb_shell::context_menu_hooks::install_common_hook() {
+void mb_shell::context_menu_hooks::install_NtUserTrackPopupMenuEx_hook() {
     auto proc = blook::Process::self();
     auto win32u = proc->module("win32u.dll");
     auto user32 = proc->module("user32.dll");
