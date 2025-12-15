@@ -224,16 +224,14 @@ menu menu::construct_with_hmenu(
             }
         }
 
-        if (info.fType & MFT_BITMAP) {
+        if (info.hbmpItem) {
             item.icon_bitmap = (size_t)info.hbmpItem;
         } else if (info.hbmpChecked || info.hbmpUnchecked) {
             if (info.fState & MFS_CHECKED)
                 item.icon_bitmap = (size_t)info.hbmpChecked;
             else
                 item.icon_bitmap = (size_t)info.hbmpUnchecked;
-        }
-
-        if (info.dwItemData) {
+        } else if (info.dwItemData) {
             HBITMAP result{};
 
             if (!IS_INTRESOURCE(info.dwItemData)) {
