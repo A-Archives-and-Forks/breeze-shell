@@ -68,6 +68,14 @@ Download and extract the zip, and Run `breeze.exe`.
   <img width=500 src=./resources/breeze-interface />
 </div>
 
+### Compatibility
+| Name | ✳️ |
+|---|---|
+| Microsoft Explorer | ✅ |
+| OneCommander | ☑️ | 
+
+<sub>✅ - Fully compatible; ☑️ - Mostly works</sub>
+
 # Building
 
 Breeze uses xmake. You'd have to install xmake in your computer first. Then,
