@@ -29,7 +29,6 @@ export const doOneCommanderCompat = () => {
         const CREATE_FILE_NAME = zh ? "文件" : "File";
         m.menu.append_item_after({
             name: NEW_NAME,
-            icon_svg: `<svg xmlns="http://www.w3.org/2000/svg" ${fill} viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>`,
             submenu(m) {
                 m.append_item({
                     name: CREATE_FOLDER_NAME,
