@@ -699,7 +699,7 @@ struct infra {
 } // namespace mb_shell::js
 
 namespace mb_shell {
-extern std::unordered_set<
+extern std::vector<
     std::shared_ptr<std::function<void(js::menu_info_basic_js)>>>
     menu_callbacks_js;
 } // namespace mb_shell

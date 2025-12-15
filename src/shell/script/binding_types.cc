@@ -34,7 +34,7 @@
 #include "wintoastlib.h"
 using namespace WinToastLib;
 
-std::unordered_set<
+std::vector<
     std::shared_ptr<std::function<void(mb_shell::js::menu_info_basic_js)>>>
     mb_shell::menu_callbacks_js;
 namespace mb_shell::js {
@@ -81,8 +81,8 @@ std::function<void()> menu_controller::add_menu_listener(
     };
     auto ptr =
         std::make_shared<std::function<void(menu_info_basic_js)>>(listener_cvt);
-    menu_callbacks_js.insert(ptr);
-    return [ptr]() { menu_callbacks_js.erase(ptr); };
+    menu_callbacks_js.push_back(ptr);
+    return [ptr]() { std::erase(menu_callbacks_js, ptr); };
 }
 menu_controller::~menu_controller() {}
 void menu_item_controller::set_position(int new_index) {
@@ -1237,32 +1237,97 @@ void win32::reg_set_qword(std::string key, std::string name, int64_t value) {
     RegCloseKey(hKey);
 }
 
-
 static WORD get_scancode(std::string key) {
     std::transform(key.begin(), key.end(), key.begin(), ::tolower);
 
     static const std::unordered_map<std::string, WORD> scancodes = {
-        {"escape", 0x01}, {"1", 0x02}, {"2", 0x03}, {"3", 0x04}, {"4", 0x05},
-        {"5", 0x06}, {"6", 0x07}, {"7", 0x08}, {"8", 0x09}, {"9", 0x0A},
-        {"0", 0x0B}, {"minus", 0x0C}, {"equal", 0x0D}, {"backspace", 0x0E},
-        {"tab", 0x0F}, {"q", 0x10}, {"w", 0x11}, {"e", 0x12}, {"r", 0x13},
-        {"t", 0x14}, {"y", 0x15}, {"u", 0x16}, {"i", 0x17}, {"o", 0x18},
-        {"p", 0x19}, {"bracket_left", 0x1A}, {"bracket_right", 0x1B}, {"enter", 0x1C},
-        {"ctrl", 0x1D}, {"a", 0x1E}, {"s", 0x1F}, {"d", 0x20}, {"f", 0x21},
-        {"g", 0x22}, {"h", 0x23}, {"j", 0x24}, {"k", 0x25}, {"l", 0x26},
-        {"semicolon", 0x27}, {"quote", 0x28}, {"backtick", 0x29}, {"shift", 0x2A},
-        {"backslash", 0x2B}, {"z", 0x2C}, {"x", 0x2D}, {"c", 0x2E}, {"v", 0x2F},
-        {"b", 0x30}, {"n", 0x31}, {"m", 0x32}, {"comma", 0x33}, {"period", 0x34},
-        {"slash", 0x35}, {"alt", 0x38}, {"space", 0x39}, {"capslock", 0x3A},
-        {"f1", 0x3B}, {"f2", 0x3C}, {"f3", 0x3D}, {"f4", 0x3E}, {"f5", 0x3F},
-        {"f6", 0x40}, {"f7", 0x41}, {"f8", 0x42}, {"f9", 0x43}, {"f10", 0x44},
-        {"numlock", 0x45}, {"scrolllock", 0x46}, {"home", 0x47}, {"up", 0x48},
-        {"pageup", 0x49}, {"minus_pad", 0x4A}, {"left", 0x4B}, {"center", 0x4C},
-        {"right", 0x4D}, {"plus_pad", 0x4E}, {"end", 0x4F}, {"down", 0x50},
-        {"pagedown", 0x51}, {"insert", 0x52}, {"delete", 0x53}, {"f11", 0x57},
-        {"f12", 0x58}, {"win", 0xE05B}, {"context", 0xE05D}, {"printscreen", 0xE037},
-        {"pause", 0xE11D45} 
-    };
+        {"escape", 0x01},
+        {"1", 0x02},
+        {"2", 0x03},
+        {"3", 0x04},
+        {"4", 0x05},
+        {"5", 0x06},
+        {"6", 0x07},
+        {"7", 0x08},
+        {"8", 0x09},
+        {"9", 0x0A},
+        {"0", 0x0B},
+        {"minus", 0x0C},
+        {"equal", 0x0D},
+        {"backspace", 0x0E},
+        {"tab", 0x0F},
+        {"q", 0x10},
+        {"w", 0x11},
+        {"e", 0x12},
+        {"r", 0x13},
+        {"t", 0x14},
+        {"y", 0x15},
+        {"u", 0x16},
+        {"i", 0x17},
+        {"o", 0x18},
+        {"p", 0x19},
+        {"bracket_left", 0x1A},
+        {"bracket_right", 0x1B},
+        {"enter", 0x1C},
+        {"ctrl", 0x1D},
+        {"a", 0x1E},
+        {"s", 0x1F},
+        {"d", 0x20},
+        {"f", 0x21},
+        {"g", 0x22},
+        {"h", 0x23},
+        {"j", 0x24},
+        {"k", 0x25},
+        {"l", 0x26},
+        {"semicolon", 0x27},
+        {"quote", 0x28},
+        {"backtick", 0x29},
+        {"shift", 0x2A},
+        {"backslash", 0x2B},
+        {"z", 0x2C},
+        {"x", 0x2D},
+        {"c", 0x2E},
+        {"v", 0x2F},
+        {"b", 0x30},
+        {"n", 0x31},
+        {"m", 0x32},
+        {"comma", 0x33},
+        {"period", 0x34},
+        {"slash", 0x35},
+        {"alt", 0x38},
+        {"space", 0x39},
+        {"capslock", 0x3A},
+        {"f1", 0x3B},
+        {"f2", 0x3C},
+        {"f3", 0x3D},
+        {"f4", 0x3E},
+        {"f5", 0x3F},
+        {"f6", 0x40},
+        {"f7", 0x41},
+        {"f8", 0x42},
+        {"f9", 0x43},
+        {"f10", 0x44},
+        {"numlock", 0x45},
+        {"scrolllock", 0x46},
+        {"home", 0x47},
+        {"up", 0x48},
+        {"pageup", 0x49},
+        {"minus_pad", 0x4A},
+        {"left", 0x4B},
+        {"center", 0x4C},
+        {"right", 0x4D},
+        {"plus_pad", 0x4E},
+        {"end", 0x4F},
+        {"down", 0x50},
+        {"pagedown", 0x51},
+        {"insert", 0x52},
+        {"delete", 0x53},
+        {"f11", 0x57},
+        {"f12", 0x58},
+        {"win", 0xE05B},
+        {"context", 0xE05D},
+        {"printscreen", 0xE037},
+        {"pause", 0xE11D45}};
 
     auto it = scancodes.find(key);
     if (it != scancodes.end()) {
@@ -1277,22 +1342,23 @@ bool win32::is_key_down(std::string key) {
 
     WORD scancode = get_scancode(key_lower);
     if (scancode != 0) {
-        SHORT state = GetAsyncKeyState(MapVirtualKeyW(scancode & 0xFF, MAPVK_VSC_TO_VK));
+        SHORT state =
+            GetAsyncKeyState(MapVirtualKeyW(scancode & 0xFF, MAPVK_VSC_TO_VK));
         return (state & 0x8000) != 0;
     }
 
     return false;
 }
 
-
 static bool is_extended_key(WORD scancode) {
     return (scancode & 0xFF00) == 0xE000 || (scancode & 0xFF0000) == 0xE10000;
 }
 
 void win32::simulate_hotkeys(std::vector<std::string> keys) {
-    if (keys.empty()) return;
+    if (keys.empty())
+        return;
 
-    for (const auto& key : keys) {
+    for (const auto &key : keys) {
         simulate_key_down(key);
     }
     for (auto it = keys.rbegin(); it != keys.rend(); ++it) {
@@ -1307,7 +1373,8 @@ void win32::simulate_key_press(std::string key) {
 
 void win32::simulate_key_down(std::string key) {
     WORD sc = get_scancode(key);
-    if (sc == 0) return;
+    if (sc == 0)
+        return;
 
     INPUT input = {0};
     input.type = INPUT_KEYBOARD;
@@ -1323,7 +1390,8 @@ void win32::simulate_key_down(std::string key) {
 
 void win32::simulate_key_up(std::string key) {
     WORD sc = get_scancode(key);
-    if (sc == 0) return;
+    if (sc == 0)
+        return;
 
     INPUT input = {0};
     input.type = INPUT_KEYBOARD;
@@ -1342,7 +1410,7 @@ void win32::simulate_text_input(std::string text) {
 
     for (wchar_t c : wtext) {
         INPUT input[2] = {0};
-        
+
         input[0].type = INPUT_KEYBOARD;
         input[0].ki.wScan = c;
         input[0].ki.dwFlags = KEYEVENTF_UNICODE;
@@ -1364,7 +1432,8 @@ void win32::simulate_mouse_move(int x, int y) {
     SendInput(1, &input, sizeof(INPUT));
 }
 
-static void get_mouse_flags(std::string button, bool down, DWORD& flags, DWORD& data) {
+static void get_mouse_flags(std::string button, bool down, DWORD &flags,
+                            DWORD &data) {
     std::transform(button.begin(), button.end(), button.begin(), ::tolower);
     flags = 0;
     data = 0;
@@ -1392,8 +1461,9 @@ void win32::simulate_mouse_click(std::string button) {
 void win32::simulate_mouse_down(std::string button) {
     DWORD flags, data;
     get_mouse_flags(button, true, flags, data);
-    
-    if (flags == 0) return;
+
+    if (flags == 0)
+        return;
 
     INPUT input = {0};
     input.type = INPUT_MOUSE;
@@ -1406,7 +1476,8 @@ void win32::simulate_mouse_up(std::string button) {
     DWORD flags, data;
     get_mouse_flags(button, false, flags, data);
 
-    if (flags == 0) return;
+    if (flags == 0)
+        return;
 
     INPUT input = {0};
     input.type = INPUT_MOUSE;
