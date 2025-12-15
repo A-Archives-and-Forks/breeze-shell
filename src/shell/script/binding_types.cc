@@ -24,6 +24,7 @@
 #include "shell/contextmenu/hooks.h"
 
 #include "script.h"
+#include "shell/utils.h"
 #include "winhttp.h"
 
 #include <shellapi.h>
@@ -1235,72 +1236,183 @@ void win32::reg_set_qword(std::string key, std::string name, int64_t value) {
 
     RegCloseKey(hKey);
 }
+
+
+static WORD get_scancode(std::string key) {
+    std::transform(key.begin(), key.end(), key.begin(), ::tolower);
+
+    static const std::unordered_map<std::string, WORD> scancodes = {
+        {"escape", 0x01}, {"1", 0x02}, {"2", 0x03}, {"3", 0x04}, {"4", 0x05},
+        {"5", 0x06}, {"6", 0x07}, {"7", 0x08}, {"8", 0x09}, {"9", 0x0A},
+        {"0", 0x0B}, {"minus", 0x0C}, {"equal", 0x0D}, {"backspace", 0x0E},
+        {"tab", 0x0F}, {"q", 0x10}, {"w", 0x11}, {"e", 0x12}, {"r", 0x13},
+        {"t", 0x14}, {"y", 0x15}, {"u", 0x16}, {"i", 0x17}, {"o", 0x18},
+        {"p", 0x19}, {"bracket_left", 0x1A}, {"bracket_right", 0x1B}, {"enter", 0x1C},
+        {"ctrl", 0x1D}, {"a", 0x1E}, {"s", 0x1F}, {"d", 0x20}, {"f", 0x21},
+        {"g", 0x22}, {"h", 0x23}, {"j", 0x24}, {"k", 0x25}, {"l", 0x26},
+        {"semicolon", 0x27}, {"quote", 0x28}, {"backtick", 0x29}, {"shift", 0x2A},
+        {"backslash", 0x2B}, {"z", 0x2C}, {"x", 0x2D}, {"c", 0x2E}, {"v", 0x2F},
+        {"b", 0x30}, {"n", 0x31}, {"m", 0x32}, {"comma", 0x33}, {"period", 0x34},
+        {"slash", 0x35}, {"alt", 0x38}, {"space", 0x39}, {"capslock", 0x3A},
+        {"f1", 0x3B}, {"f2", 0x3C}, {"f3", 0x3D}, {"f4", 0x3E}, {"f5", 0x3F},
+        {"f6", 0x40}, {"f7", 0x41}, {"f8", 0x42}, {"f9", 0x43}, {"f10", 0x44},
+        {"numlock", 0x45}, {"scrolllock", 0x46}, {"home", 0x47}, {"up", 0x48},
+        {"pageup", 0x49}, {"minus_pad", 0x4A}, {"left", 0x4B}, {"center", 0x4C},
+        {"right", 0x4D}, {"plus_pad", 0x4E}, {"end", 0x4F}, {"down", 0x50},
+        {"pagedown", 0x51}, {"insert", 0x52}, {"delete", 0x53}, {"f11", 0x57},
+        {"f12", 0x58}, {"win", 0xE05B}, {"context", 0xE05D}, {"printscreen", 0xE037},
+        {"pause", 0xE11D45} 
+    };
+
+    auto it = scancodes.find(key);
+    if (it != scancodes.end()) {
+        return it->second;
+    }
+    return 0;
+}
+
 bool win32::is_key_down(std::string key) {
     auto key_lower =
         key | std::views::transform(::tolower) | std::ranges::to<std::string>();
 
-    constexpr auto key_map =
-        std::to_array<std::pair<const char *, int>>({{"ctrl", VK_CONTROL},
-                                                     {"shift", VK_SHIFT},
-                                                     {"alt", VK_MENU},
-                                                     {"space", VK_SPACE},
-                                                     {"enter", VK_RETURN},
-                                                     {"esc", VK_ESCAPE},
-                                                     {"tab", VK_TAB},
-                                                     {"backspace", VK_BACK},
-                                                     {"delete", VK_DELETE},
-                                                     {"left", VK_LEFT},
-                                                     {"right", VK_RIGHT},
-                                                     {"up", VK_UP},
-                                                     {"down", VK_DOWN},
-                                                     {"f1", VK_F1},
-                                                     {"f2", VK_F2},
-                                                     {"f3", VK_F3},
-                                                     {"f4", VK_F4},
-                                                     {"f5", VK_F5},
-                                                     {"f6", VK_F6},
-                                                     {"f7", VK_F7},
-                                                     {"f8", VK_F8},
-                                                     {"f9", VK_F9},
-                                                     {"f10", VK_F10},
-                                                     {"f11", VK_F11},
-                                                     {"f12", VK_F12},
-                                                     {"a", 'A'},
-                                                     {"b", 'B'},
-                                                     {"c", 'C'},
-                                                     {"d", 'D'},
-                                                     {"e", 'E'},
-                                                     {"f", 'F'},
-                                                     {"g", 'G'},
-                                                     {"h", 'H'},
-                                                     {"i", 'I'},
-                                                     {"j", 'J'},
-                                                     {"k", 'K'},
-                                                     {"l", 'L'},
-                                                     {"m", 'M'},
-                                                     {"n", 'N'},
-                                                     {"o", 'O'},
-                                                     {"p", 'P'},
-                                                     {"q", 'Q'},
-                                                     {"r", 'R'},
-                                                     {"s", 'S'},
-                                                     {"t", 'T'},
-                                                     {"u", 'U'},
-                                                     {"v", 'V'},
-                                                     {"w", 'W'},
-                                                     {"x", 'X'},
-                                                     {"y", 'Y'},
-                                                     {"z", 'Z'}});
-
-    auto keycode = std::ranges::find_if(key_map, [key_lower](const auto &pair) {
-        return key_lower == pair.first;
-    });
-
-    if (keycode != key_map.end()) {
-        return GetAsyncKeyState(keycode->second) & 0x8000;
+    WORD scancode = get_scancode(key_lower);
+    if (scancode != 0) {
+        SHORT state = GetAsyncKeyState(MapVirtualKeyW(scancode & 0xFF, MAPVK_VSC_TO_VK));
+        return (state & 0x8000) != 0;
     }
 
     return false;
+}
+
+
+static bool is_extended_key(WORD scancode) {
+    return (scancode & 0xFF00) == 0xE000 || (scancode & 0xFF0000) == 0xE10000;
+}
+
+void win32::simulate_hotkeys(std::vector<std::string> keys) {
+    if (keys.empty()) return;
+
+    for (const auto& key : keys) {
+        simulate_key_down(key);
+    }
+    for (auto it = keys.rbegin(); it != keys.rend(); ++it) {
+        simulate_key_up(*it);
+    }
+}
+
+void win32::simulate_key_press(std::string key) {
+    simulate_key_down(key);
+    simulate_key_up(key);
+}
+
+void win32::simulate_key_down(std::string key) {
+    WORD sc = get_scancode(key);
+    if (sc == 0) return;
+
+    INPUT input = {0};
+    input.type = INPUT_KEYBOARD;
+    input.ki.wScan = sc & 0xFF;
+    input.ki.dwFlags = KEYEVENTF_SCANCODE;
+
+    if (is_extended_key(sc)) {
+        input.ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
+    }
+
+    SendInput(1, &input, sizeof(INPUT));
+}
+
+void win32::simulate_key_up(std::string key) {
+    WORD sc = get_scancode(key);
+    if (sc == 0) return;
+
+    INPUT input = {0};
+    input.type = INPUT_KEYBOARD;
+    input.ki.wScan = sc & 0xFF;
+    input.ki.dwFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
+
+    if (is_extended_key(sc)) {
+        input.ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
+    }
+
+    SendInput(1, &input, sizeof(INPUT));
+}
+
+void win32::simulate_text_input(std::string text) {
+    std::wstring wtext = utf8_to_wstring(text);
+
+    for (wchar_t c : wtext) {
+        INPUT input[2] = {0};
+        
+        input[0].type = INPUT_KEYBOARD;
+        input[0].ki.wScan = c;
+        input[0].ki.dwFlags = KEYEVENTF_UNICODE;
+
+        input[1].type = INPUT_KEYBOARD;
+        input[1].ki.wScan = c;
+        input[1].ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
+
+        SendInput(2, input, sizeof(INPUT));
+    }
+}
+
+void win32::simulate_mouse_move(int x, int y) {
+    INPUT input = {0};
+    input.type = INPUT_MOUSE;
+    input.mi.dx = (x * 65535) / (GetSystemMetrics(SM_CXSCREEN) - 1);
+    input.mi.dy = (y * 65535) / (GetSystemMetrics(SM_CYSCREEN) - 1);
+    input.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE;
+    SendInput(1, &input, sizeof(INPUT));
+}
+
+static void get_mouse_flags(std::string button, bool down, DWORD& flags, DWORD& data) {
+    std::transform(button.begin(), button.end(), button.begin(), ::tolower);
+    flags = 0;
+    data = 0;
+
+    if (button == "left") {
+        flags = down ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP;
+    } else if (button == "right") {
+        flags = down ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_RIGHTUP;
+    } else if (button == "middle") {
+        flags = down ? MOUSEEVENTF_MIDDLEDOWN : MOUSEEVENTF_MIDDLEUP;
+    } else if (button == "x1") {
+        flags = down ? MOUSEEVENTF_XDOWN : MOUSEEVENTF_XUP;
+        data = XBUTTON1;
+    } else if (button == "x2") {
+        flags = down ? MOUSEEVENTF_XDOWN : MOUSEEVENTF_XUP;
+        data = XBUTTON2;
+    }
+}
+
+void win32::simulate_mouse_click(std::string button) {
+    simulate_mouse_down(button);
+    simulate_mouse_up(button);
+}
+
+void win32::simulate_mouse_down(std::string button) {
+    DWORD flags, data;
+    get_mouse_flags(button, true, flags, data);
+    
+    if (flags == 0) return;
+
+    INPUT input = {0};
+    input.type = INPUT_MOUSE;
+    input.mi.dwFlags = flags;
+    input.mi.mouseData = data;
+    SendInput(1, &input, sizeof(INPUT));
+}
+
+void win32::simulate_mouse_up(std::string button) {
+    DWORD flags, data;
+    get_mouse_flags(button, false, flags, data);
+
+    if (flags == 0) return;
+
+    INPUT input = {0};
+    input.type = INPUT_MOUSE;
+    input.mi.dwFlags = flags;
+    input.mi.mouseData = data;
+    SendInput(1, &input, sizeof(INPUT));
 }
 
 struct WinToastEventHandler : public IWinToastHandler {
@@ -1459,11 +1571,32 @@ void screenside_button_controller::add_button(std::string icon_svg,
     if ($menu.expired())
         return;
     auto menu = $menu.lock();
-    auto button = std::make_shared<screenside_button_group_widget::button_widget>(icon_svg);
+    auto button =
+        std::make_shared<screenside_button_group_widget::button_widget>(
+            icon_svg);
     button->on_click = on_click;
-    if(auto group = menu->get_child<screenside_button_group_widget>()) {
+    if (auto group = menu->get_child<screenside_button_group_widget>()) {
         group->children.push_back(button);
         group->children_dirty = true;
     }
+}
+std::string breeze::current_process_name() {
+    static std::string process_name = []() {
+        wchar_t buffer[MAX_PATH];
+        GetModuleFileNameW(NULL, buffer, MAX_PATH);
+        return wstring_to_utf8(
+            std::filesystem::path(buffer).filename().wstring());
+    }();
+
+    return process_name;
+}
+std::string breeze::current_process_path() {
+    static std::string process_path = []() {
+        wchar_t buffer[MAX_PATH];
+        GetModuleFileNameW(NULL, buffer, MAX_PATH);
+        return wstring_to_utf8(std::filesystem::path(buffer).wstring());
+    }();
+
+    return process_path;
 }
 } // namespace mb_shell::js

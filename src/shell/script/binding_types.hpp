@@ -633,6 +633,8 @@ struct breeze {
     static std::string user_language();
     static void set_can_reload_js(bool can);
     static bool should_show_settings_button();
+    static std::string current_process_name();
+    static std::string current_process_path();
 };
 
 struct win32 {
@@ -652,6 +654,26 @@ struct win32 {
     static void reg_set_qword(std::string key, std::string name, int64_t value);
 
     static bool is_key_down(std::string key);
+
+    // Support keys:
+    // "ctrl", "shift", "alt", "win", "A" - "Z", "0" - "9", "f1" - "f12",
+    // "up", "down", "left", "right", "enter", "space", "tab", "esc", "backspace",
+    // "delete", "home", "end", "pageup", "pagedown", "insert", "capslock", "numlock",
+    // "scrolllock", "printscreen", "pause", "minus", "equal", "comma", "period",
+    // "slash", "backslash", "semicolon", "quote", "bracket_left", "bracket_right"
+    // case insensitive
+    static void simulate_hotkeys(std::vector<std::string> keys);
+    static void simulate_key_press(std::string key);
+    static void simulate_key_down(std::string key);
+    static void simulate_key_up(std::string key);
+    static void simulate_text_input(std::string text);
+    static void simulate_mouse_move(int x, int y);
+    // Buttons: "left", "right", "middle", "x1", "x2"
+    static void simulate_mouse_click(std::string button);
+    // Buttons: "left", "right", "middle", "x1", "x2"
+    static void simulate_mouse_down(std::string button);
+    // Buttons: "left", "right", "middle", "x1", "x2"
+    static void simulate_mouse_up(std::string button);
 };
 
 struct notification {

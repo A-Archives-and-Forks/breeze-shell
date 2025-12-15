@@ -1141,6 +1141,8 @@ template<> struct js_bind<mb_shell::js::breeze> {
                 .static_fun<&mb_shell::js::breeze::user_language>("user_language")
                 .static_fun<&mb_shell::js::breeze::set_can_reload_js>("set_can_reload_js")
                 .static_fun<&mb_shell::js::breeze::should_show_settings_button>("should_show_settings_button")
+                .static_fun<&mb_shell::js::breeze::current_process_name>("current_process_name")
+                .static_fun<&mb_shell::js::breeze::current_process_path>("current_process_path")
             ;
     }
 };
@@ -1175,6 +1177,15 @@ template<> struct js_bind<mb_shell::js::win32> {
                 .static_fun<&mb_shell::js::win32::reg_set_string>("reg_set_string")
                 .static_fun<&mb_shell::js::win32::reg_set_qword>("reg_set_qword")
                 .static_fun<&mb_shell::js::win32::is_key_down>("is_key_down")
+                .static_fun<&mb_shell::js::win32::simulate_hotkeys>("simulate_hotkeys")
+                .static_fun<&mb_shell::js::win32::simulate_key_press>("simulate_key_press")
+                .static_fun<&mb_shell::js::win32::simulate_key_down>("simulate_key_down")
+                .static_fun<&mb_shell::js::win32::simulate_key_up>("simulate_key_up")
+                .static_fun<&mb_shell::js::win32::simulate_text_input>("simulate_text_input")
+                .static_fun<&mb_shell::js::win32::simulate_mouse_move>("simulate_mouse_move")
+                .static_fun<&mb_shell::js::win32::simulate_mouse_click>("simulate_mouse_click")
+                .static_fun<&mb_shell::js::win32::simulate_mouse_down>("simulate_mouse_down")
+                .static_fun<&mb_shell::js::win32::simulate_mouse_up>("simulate_mouse_up")
             ;
     }
 };

@@ -1076,6 +1076,8 @@ export class breeze {
      */
     static set_can_reload_js(can: boolean): void
 	static should_show_settings_button(): boolean
+	static current_process_name(): string
+	static current_process_path(): string
 }
 export class win32 {
 	/**
@@ -1165,6 +1167,67 @@ export class win32 {
      * @returns boolean
      */
     static is_key_down(key: string): boolean
+	/**
+     *  Support keys:
+     *  "ctrl", "shift", "alt", "win", "A" - "Z", "0" - "9", "f1" - "f12",
+     *  "up", "down", "left", "right", "enter", "space", "tab", "esc", "backspace",
+     *  "delete", "home", "end", "pageup", "pagedown", "insert", "capslock", "numlock",
+     *  "scrolllock", "printscreen", "pause", "minus", "equal", "comma", "period",
+     *  "slash", "backslash", "semicolon", "quote", "bracket_left", "bracket_right"
+     *  case insensitive
+     * @param keys: Array<string>
+     * @returns void
+     */
+    static simulate_hotkeys(keys: Array<string>): void
+	/**
+     * 
+     * @param key: string
+     * @returns void
+     */
+    static simulate_key_press(key: string): void
+	/**
+     * 
+     * @param key: string
+     * @returns void
+     */
+    static simulate_key_down(key: string): void
+	/**
+     * 
+     * @param key: string
+     * @returns void
+     */
+    static simulate_key_up(key: string): void
+	/**
+     * 
+     * @param text: string
+     * @returns void
+     */
+    static simulate_text_input(text: string): void
+	/**
+     * 
+     * @param x: number
+     * @param y: number
+     * @returns void
+     */
+    static simulate_mouse_move(x: number, y: number): void
+	/**
+     *  Buttons: "left", "right", "middle", "x1", "x2"
+     * @param button: string
+     * @returns void
+     */
+    static simulate_mouse_click(button: string): void
+	/**
+     *  Buttons: "left", "right", "middle", "x1", "x2"
+     * @param button: string
+     * @returns void
+     */
+    static simulate_mouse_down(button: string): void
+	/**
+     *  Buttons: "left", "right", "middle", "x1", "x2"
+     * @param button: string
+     * @returns void
+     */
+    static simulate_mouse_up(button: string): void
 }
 export class notification {
 	/**
