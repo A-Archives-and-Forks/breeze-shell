@@ -39,6 +39,7 @@ struct menu_item_parent_widget : public menu_item_widget {
     using super = menu_item_widget;
     void update(ui::update_context &ctx) override;
     void reset_appear_animation(float delay) override;
+    float measure_width(ui::update_context &ctx) override;
 };
 
 struct menu_item_normal_widget : public menu_item_widget {
