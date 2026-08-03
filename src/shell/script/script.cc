@@ -6,6 +6,7 @@
 #include "shell/logger.h"
 
 #include <algorithm>
+#include <atomic>
 #include <ranges>
 #include <thread>
 
@@ -41,10 +42,9 @@ script_context::script_context() {
     });
 }
 
-
 void script_context::watch_folder(const std::filesystem::path &path,
                                   std::function<bool()> on_reload) {
-    bool has_update = false;
+    std::atomic_bool has_update = false;
 
     auto reload_all = [&]() {
         spdlog::info("Reloading all scripts");
@@ -97,24 +97,34 @@ void script_context::watch_folder(const std::filesystem::path &path,
         is_js_ready.notify_all();
     };
 
-    reload_all();
-
-    filewatch::FileWatch<std::string> watch(
-        path.generic_string(),
-        [&](const std::string &changed_path, const filewatch::Event) {
-            if (!changed_path.ends_with(".js")) {
-                return;
-            }
-
-            spdlog::info("File change detected: {}", changed_path);
-            has_update = true;
-        });
-
     while (true) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(300));
-        if (has_update && on_reload()) {
-            has_update = false;
+        try {
+            std::filesystem::create_directories(path);
             reload_all();
+
+            filewatch::FileWatch<std::string> watch(
+                path.generic_string(),
+                [&](const std::string &changed_path, const filewatch::Event) {
+                    if (!changed_path.ends_with(".js")) {
+                        return;
+                    }
+
+                    spdlog::info("File change detected: {}", changed_path);
+                    has_update.store(true, std::memory_order_release);
+                });
+
+            while (true) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(300));
+                if (has_update.load(std::memory_order_acquire) && on_reload()) {
+                    has_update.store(false, std::memory_order_release);
+                    reload_all();
+                }
+            }
+        } catch (const std::exception &e) {
+            is_js_ready.store(false);
+            spdlog::error("Script folder watcher failed for {}: {}. Retrying.",
+                          path.string(), e.what());
+            std::this_thread::sleep_for(std::chrono::seconds(1));
         }
     }
 }

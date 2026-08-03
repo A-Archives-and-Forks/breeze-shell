@@ -46,6 +46,22 @@ std::vector<
     std::shared_ptr<std::function<void(mb_shell::js::menu_info_basic_js)>>>
     mb_shell::menu_callbacks_js;
 namespace mb_shell::js {
+namespace {
+std::weak_ptr<qjs::Context> current_js_context() {
+    return qjs::Context::current
+               ? qjs::Context::current->weak_from_this()
+               : std::weak_ptr<qjs::Context>{};
+}
+
+template <typename Callback>
+void enqueue_if_alive(const std::weak_ptr<qjs::Context> &weak_ctx,
+                      Callback &&callback) {
+    if (auto ctx = weak_ctx.lock()) {
+        ctx->enqueueJob(std::forward<Callback>(callback));
+    }
+}
+} // namespace
+
 bool menu_controller::valid() { return !$menu.expired(); }
 std::shared_ptr<mb_shell::js::menu_item_controller>
 menu_controller::append_item_after(js_menu_data data, int after_index) {
@@ -505,14 +521,14 @@ void network::get_async(std::string url,
                         std::function<void(std::string)> callback,
                         std::function<void(std::string)> error_callback) {
     std::thread([url, callback, error_callback,
-                 &ctx = *qjs::Context::current]() {
+                 weak_ctx = current_js_context()]() {
         try {
             auto res = get(url);
-            ctx.enqueueJob([=]() { callback(res); });
+            enqueue_if_alive(weak_ctx, [=]() { callback(res); });
         } catch (std::exception &e) {
             spdlog::error("Error in network::get_async: {}", e.what());
             auto error = std::string(e.what());
-            ctx.enqueueJob([=]() { error_callback(error); });
+            enqueue_if_alive(weak_ctx, [=]() { error_callback(error); });
         }
     }).detach();
 }
@@ -521,14 +537,14 @@ void network::post_async(std::string url, std::string data,
                          std::function<void(std::string)> callback,
                          std::function<void(std::string)> error_callback) {
     std::thread([url, data, callback, error_callback,
-                 &ctx = *qjs::Context::current]() {
+                 weak_ctx = current_js_context()]() {
         try {
             auto res = post(url, data);
-            ctx.enqueueJob([=]() { callback(res); });
+            enqueue_if_alive(weak_ctx, [=]() { callback(res); });
         } catch (std::exception &e) {
             spdlog::error("Error in network::post_async: {}", e.what());
             auto error = std::string(e.what());
-            ctx.enqueueJob([=]() { error_callback(error); });
+            enqueue_if_alive(weak_ctx, [=]() { error_callback(error); });
         }
     }).detach();
 }
@@ -580,10 +596,10 @@ subproc_result_data subproc::run(std::string cmd) {
 }
 void subproc::run_async(std::string cmd,
                         std::function<void(subproc_result_data)> callback) {
-    std::thread([cmd, callback, &ctx = *qjs::Context::current]() {
+    std::thread([cmd, callback, weak_ctx = current_js_context()]() {
         try {
             auto res = run(cmd);
-            ctx.enqueueJob([=]() { callback(res); });
+            enqueue_if_alive(weak_ctx, [=]() { callback(res); });
         } catch (std::exception &e) {
             spdlog::error("Error in subproc::run_async: {}", e.what());
         }
@@ -679,16 +695,16 @@ void network::download_async(std::string url, std::string path,
                              std::function<void()> callback,
                              std::function<void(std::string)> error_callback) {
     std::thread([url, path, callback, error_callback,
-                 &ctx = *qjs::Context::current]() {
+                 weak_ctx = current_js_context()]() {
         try {
             auto data = get(url);
             fs::write_binary(path,
                              std::vector<uint8_t>(data.begin(), data.end()));
-            ctx.enqueueJob([=]() { callback(); });
+            enqueue_if_alive(weak_ctx, [=]() { callback(); });
         } catch (std::exception &e) {
             auto error = std::string(e.what());
             spdlog::error("Error in network::download_async: {}", error);
-            ctx.enqueueJob([=]() { error_callback(error); });
+            enqueue_if_alive(weak_ctx, [=]() { error_callback(error); });
         }
     }).detach();
 }
@@ -698,7 +714,7 @@ void network::download_with_progress_async(
     std::function<void(std::string)> error_callback,
     std::function<void(size_t, size_t)> progress_callback) {
     std::thread([url, path, callback, error_callback,
-                 progress_callback, &ctx = *qjs::Context::current]() {
+                 progress_callback, weak_ctx = current_js_context()]() {
         HINTERNET hSession = nullptr;
         HINTERNET hConnect = nullptr;
         HINTERNET hRequest = nullptr;
@@ -822,21 +838,21 @@ void network::download_with_progress_async(
                 }
 
                 downloadedBytes += bytesRead;
-                ctx.enqueueJob([=]() {
+                enqueue_if_alive(weak_ctx, [=]() {
                     progress_callback(downloadedBytes, totalBytes);
                 });
             } while (bytesAvailable > 0);
 
             file.close();
             close_handles();
-            ctx.enqueueJob([=]() { callback(); });
+            enqueue_if_alive(weak_ctx, [=]() { callback(); });
         } catch (std::exception &e) {
             close_handles();
             std::filesystem::remove(path);
             auto error = std::string(e.what());
             spdlog::error("Error in network::download_with_progress_async: {}",
                           error);
-            ctx.enqueueJob([=]() { error_callback(error); });
+            enqueue_if_alive(weak_ctx, [=]() { error_callback(error); });
         }
     }).detach();
 }
@@ -1027,10 +1043,10 @@ void subproc::open(std::string path, std::string args) {
 }
 void subproc::open_async(std::string path, std::string args,
                          std::function<void()> callback) {
-    std::thread([path, callback, args, &ctx = *qjs::Context::current]() {
+    std::thread([path, callback, args, weak_ctx = current_js_context()]() {
         try {
             open(path, args);
-            ctx.enqueueJob([=]() { callback(); });
+            enqueue_if_alive(weak_ctx, [=]() { callback(); });
         } catch (std::exception &e) {
             spdlog::error("Error in subproc::open_async: {}", e.what());
         }
@@ -1183,7 +1199,7 @@ std::string infra::btoa(std::string str) {
 
 void fs::copy_shfile(std::string src_path, std::string dest_path,
                      std::function<void(bool, std::string)> callback) {
-    std::thread([=, &ctx = *qjs::Context::current] {
+    std::thread([=, weak_ctx = current_js_context()] {
         SHFILEOPSTRUCTW FileOp = {GetForegroundWindow()};
         std::wstring wsrc = utf8_to_wstring(src_path);
         std::wstring wdest = utf8_to_wstring(dest_path);
@@ -1229,13 +1245,13 @@ void fs::copy_shfile(std::string src_path, std::string dest_path,
 
         std::string utf8_path = wstring_to_utf8(final_path);
 
-        ctx.enqueueJob([=]() { callback(success, utf8_path); });
+        enqueue_if_alive(weak_ctx, [=]() { callback(success, utf8_path); });
     }).detach();
 }
 
 void fs::move_shfile(std::string src_path, std::string dest_path,
                      std::function<void(bool)> callback) {
-    std::thread([=, &ctx = *qjs::Context::current] {
+    std::thread([=, weak_ctx = current_js_context()] {
         SHFILEOPSTRUCTW FileOp = {GetForegroundWindow()};
         std::wstring wsrc = utf8_to_wstring(src_path);
         std::wstring wdest = utf8_to_wstring(dest_path);
@@ -1245,7 +1261,7 @@ void fs::move_shfile(std::string src_path, std::string dest_path,
         FileOp.pTo = wdest.c_str();
 
         auto res = SHFileOperationW(&FileOp);
-        ctx.enqueueJob([=]() { callback(res == 0); });
+        enqueue_if_alive(weak_ctx, [=]() { callback(res == 0); });
     }).detach();
 }
 size_t win32::load_file_icon(std::string path) {

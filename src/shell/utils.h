@@ -8,10 +8,10 @@
 #include <mutex>
 #include <optional>
 #include <queue>
+#include <ranges>
 #include <stdexcept>
 #include <string>
 #include <thread>
-#include <ranges>
 
 #include "reflect.hpp"
 
@@ -77,7 +77,7 @@ struct perf_counter {
     perf_counter(std::string name);
 };
 
-template <typename E> constexpr std::string_view string_from_enum(E e) {
+template <typename E> inline std::string string_from_enum(E e) {
     return reflect::enum_name(e) |
            std::views::transform([](char c) { return c == '_' ? '-' : c; }) |
            std::ranges::to<std::string>();
