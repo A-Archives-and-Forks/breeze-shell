@@ -31,7 +31,38 @@ template <> struct Reflector<mb_shell::paint_color> {
 } // namespace rfl
 
 namespace mb_shell {
-std::unique_ptr<config> config::current;
+namespace {
+std::mutex &config_snapshot_mutex() {
+    static auto *mutex = new std::mutex();
+    return *mutex;
+}
+
+std::mutex &config_read_mutex() {
+    static auto *mutex = new std::mutex();
+    return *mutex;
+}
+
+std::vector<std::unique_ptr<config>> &config_snapshots() {
+    // Config watcher callbacks may still be active during process teardown.
+    // Keep every immutable snapshot alive for the process lifetime so a reader
+    // can safely finish after a newer snapshot is published.
+    static auto *snapshots = new std::vector<std::unique_ptr<config>>();
+    return *snapshots;
+}
+} // namespace
+
+config::snapshot_ptr config::current;
+config::snapshot_ptr &
+config::snapshot_ptr::operator=(std::unique_ptr<config> next) {
+    auto *published = next.get();
+    {
+        std::lock_guard lock(config_snapshot_mutex());
+        config_snapshots().push_back(std::move(next));
+    }
+    value.store(published, std::memory_order_release);
+    return *this;
+}
+
 config::animated_float_conf config::_default_animation{
     .duration = 150,
     .easing = ui::easing_type::ease_in_out,
@@ -49,6 +80,7 @@ void config::write_config() {
     ofs << rfl::json::write(*config::current);
 }
 void config::read_config() {
+    std::lock_guard read_lock(config_read_mutex());
     auto config_file = data_directory() / "config.json";
 
 #ifdef __llvm__
@@ -65,9 +97,11 @@ void config::read_config() {
 })";
     }
     if (!ifs) {
-        spdlog::warn("Config file could not be opened. Using default config instead.");
-        config::current = std::make_unique<config>();
-        config::current->debug_console = true;
+        spdlog::warn(
+            "Config file could not be opened. Using default config instead.");
+        auto next = std::make_unique<config>();
+        next->debug_console = true;
+        config::current = std::move(next);
     } else {
         std::string json_str;
         std::copy(std::istreambuf_iterator<char>(ifs),
@@ -83,18 +117,22 @@ void config::read_config() {
             config::current = std::make_unique<config>(json.value());
             spdlog::info("Config reloaded.");
         } else {
-            spdlog::error("Failed to read config file: {}\nUsing default config instead.", json.error().what());
-            config::current = std::make_unique<config>();
-            config::current->debug_console = true;
+            spdlog::error(
+                "Failed to read config file: {}\nUsing default config instead.",
+                json.error().what());
+            auto next = std::make_unique<config>();
+            next->debug_console = true;
+            config::current = std::move(next);
         }
     }
 #else
 #pragma message                                                                \
     "We don't support loading config file on MSVC because of a bug in MSVC."
     spdlog::info("We don't support loading config file when compiled with MSVC "
-           "because of a bug in MSVC.");
-    config::current = std::make_unique<config>();
-    config::current->debug_console = true;
+                 "because of a bug in MSVC.");
+    auto next = std::make_unique<config>();
+    next->debug_console = true;
+    config::current = std::move(next);
 #endif
 
     if (config::current->debug_console) {
@@ -156,10 +194,20 @@ std::filesystem::path config::default_mono_font() {
            "consola.ttf";
 }
 void config::apply_fonts_to_nvg(NVGcontext *nvg) {
+    if (!nvg) {
+        spdlog::error("Cannot register fonts without a NanoVG context.");
+        return;
+    }
+
+    // Copy paths from this immutable snapshot before entering NanoVG. This
+    // also makes it explicit that no config reload can affect the call.
+    const auto main_font = font_path_main;
+    const auto fallback_font = font_path_fallback;
+    const auto monospace_font = font_path_monospace;
     ui::register_default_windows_font_suite(
-        nvg, {.main_regular = {.path = font_path_main},
-              .fallback_regular = {.path = font_path_fallback},
-              .monospace_regular = {.path = font_path_monospace}});
+        nvg, {.main_regular = {.path = main_font},
+              .fallback_regular = {.path = fallback_font},
+              .monospace_regular = {.path = monospace_font}});
 }
 void config::animated_float_conf::apply_to(ui::animated_color &anim,
                                            float delay) {
@@ -168,5 +216,8 @@ void config::animated_float_conf::apply_to(ui::animated_color &anim,
     apply_to(anim.b, delay);
     apply_to(anim.a, delay);
 }
-std::string config::dump_default_config() { return rfl::json::write(config{}); }
+std::string config::dump_default_config() {
+    std::lock_guard read_lock(config_read_mutex());
+    return rfl::json::write(config{});
+}
 } // namespace mb_shell

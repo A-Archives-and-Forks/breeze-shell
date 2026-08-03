@@ -4,6 +4,7 @@
 #include "breeze_ui/nanovg_wrapper.h"
 #include "nanovg.h"
 #include "utils.h"
+#include <atomic>
 #include <filesystem>
 #include <memory>
 #include <numbers>
@@ -14,6 +15,21 @@
 namespace mb_shell {
 
 struct config {
+    class snapshot_ptr {
+    public:
+        config *operator->() const noexcept {
+            return value.load(std::memory_order_acquire);
+        }
+        config &operator*() const noexcept { return *operator->(); }
+        explicit operator bool() const noexcept {
+            return operator->() != nullptr;
+        }
+        snapshot_ptr &operator=(std::unique_ptr<config> next);
+
+    private:
+        std::atomic<config *> value{nullptr};
+    };
+
     static std::filesystem::path default_main_font();
     static std::filesystem::path default_fallback_font();
     static std::filesystem::path default_mono_font();
@@ -136,7 +152,10 @@ struct config {
     std::string update_source;
 
     std::string $schema;
-    static std::unique_ptr<config> current;
+    // Readers run on the Explorer, renderer, watcher and JavaScript threads.
+    // Publishing immutable snapshots prevents config reloads from invalidating
+    // pointers that another thread is still using.
+    static snapshot_ptr current;
     static void read_config();
     static void write_config();
     static void run_config_loader();
