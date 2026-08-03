@@ -11,6 +11,7 @@
 #include "shell/config.h"
 #include "shell/utils.h"
 #include <algorithm>
+#include <cctype>
 #include <fmt/format.h>
 #include <iostream>
 #include <ranges>
@@ -70,11 +71,10 @@ make_bg_target_rect(const mb_shell::menu_widget *menu, float target_x,
             .height = target_height + menu->bg_padding_vertical * 2};
 }
 
-mb_shell::popup_direction get_parent_menu_direction(
-    const mb_shell::menu_item_widget *item) {
-    if (auto menu =
-            const_cast<mb_shell::menu_item_widget *>(item)
-                ->search_parent<mb_shell::menu_widget>()) {
+mb_shell::popup_direction
+get_parent_menu_direction(const mb_shell::menu_item_widget *item) {
+    if (auto menu = const_cast<mb_shell::menu_item_widget *>(item)
+                        ->search_parent<mb_shell::menu_widget>()) {
         return menu->direction;
     }
     return mb_shell::popup_direction::bottom_right;
@@ -380,11 +380,11 @@ void mb_shell::menu_widget::update(ui::update_context &ctx) {
         if (bg_animation_armed && !bg_appear_initialized &&
             target_rect.width > 0 && target_rect.height > 0) {
             auto start_rect = bg_start_rect.value_or(
-                is_top_level_menu
-                    ? make_collapsed_rect(target_rect.x, target_rect.y,
-                                          target_rect.width, target_rect.height,
-                                          get_menu_bg_animation(this), direction)
-                    : target_rect);
+                is_top_level_menu ? make_collapsed_rect(
+                                        target_rect.x, target_rect.y,
+                                        target_rect.width, target_rect.height,
+                                        get_menu_bg_animation(this), direction)
+                                  : target_rect);
             bg->x->reset_to(start_rect.x);
             bg->y->reset_to(start_rect.y);
             bg->width->reset_to(start_rect.width);
@@ -419,39 +419,30 @@ void mb_shell::menu_widget::update(ui::update_context &ctx) {
          (!owner_rt->focused_widget.has_value() && rendering_submenus.empty()));
 
     if (should_handle_keyboard) {
-        auto move_key = [&](this auto &self, bool next, auto &items) -> void {
+        auto move_key = [](bool next, auto &items) {
+            if (items.empty()) {
+                return;
+            }
+
             auto focused_item = std::ranges::find_if(
                 items, [](const auto &item) { return item->focused(); });
-            if (focused_item != items.end()) {
-                if (next) {
-                    focused_item++;
-                    if (focused_item == items.end()) {
-                        focused_item = items.begin();
-                    }
-                } else {
-                    if (focused_item == items.begin()) {
-                        focused_item = items.end() - 1;
-                    } else {
-                        focused_item--;
-                    }
-                }
+            auto index = focused_item == items.end()
+                             ? (next ? items.size() - 1 : size_t{0})
+                             : static_cast<size_t>(
+                                   std::distance(items.begin(), focused_item));
 
-                (*focused_item)->set_focus(true);
-
-                if (auto wid =
-                        (*focused_item)
-                            ->template downcast<menu_item_normal_widget>()) {
-                    if (wid->item.disabled ||
-                        wid->item.type == mb_shell::menu_item::type::spacer) {
-                        self(next, items);
-                        return;
-                    }
-                } else {
-                    self(next, items);
-                }
-            } else {
-                if (!items.empty()) {
-                    items.front()->set_focus(true);
+            // A menu may contain only separators, disabled items or custom
+            // widgets. Bound the search by the item count instead of recursing
+            // forever when no keyboard-focusable item exists.
+            for (size_t attempts = 0; attempts < items.size(); ++attempts) {
+                index = next ? (index + 1) % items.size()
+                             : (index + items.size() - 1) % items.size();
+                auto wid =
+                    items[index]->template downcast<menu_item_normal_widget>();
+                if (wid && !wid->item.disabled &&
+                    wid->item.type != mb_shell::menu_item::type::spacer) {
+                    items[index]->set_focus(true);
+                    return;
                 }
             }
         };
@@ -506,7 +497,8 @@ void mb_shell::menu_widget::update(ui::update_context &ctx) {
                         try {
                             wid->item.action.value()();
                         } catch (std::exception &e) {
-                            spdlog::error("Error in menu item action: {}", e.what());
+                            spdlog::error("Error in menu item action: {}",
+                                          e.what());
                         }
                     } else if (wid->item.submenu) {
                         wid->show_submenu(ctx);
@@ -521,16 +513,6 @@ void mb_shell::menu_widget::update(ui::update_context &ctx) {
                                    menu_item_normal_widget>()) {
                         if (!wid->item.hotkey)
                             return false;
-                        auto hotkey =
-                            *wid->item.hotkey | std::views::split('+') |
-                            std::views::transform([](const auto &c) {
-                                auto s = std::string(c.begin(), c.end());
-                                // trim whitespace
-                                s.erase(s.find_last_not_of(" \t\n\r") + 1);
-                                s.erase(0, s.find_first_not_of(" \t\n\r"));
-                                return s;
-                            });
-
                         static auto translate_map =
                             std::unordered_map<std::string, int>{
                                 {"ctrl", GLFW_KEY_LEFT_CONTROL},
@@ -576,11 +558,22 @@ void mb_shell::menu_widget::update(ui::update_context &ctx) {
                             };
 
                         auto key_combination = std::vector<int>();
-                        for (const auto &key : hotkey) {
-                            if (auto it = translate_map.find(
-                                    std::string(key) |
-                                    std::views::transform(::tolower) |
-                                    std::ranges::to<std::string>());
+                        const auto hotkey = *wid->item.hotkey;
+                        for (const auto part :
+                             hotkey | std::views::split('+')) {
+                            auto key = std::string(part.begin(), part.end());
+                            const auto first = key.find_first_not_of(" \t\n\r");
+                            if (first == std::string::npos) {
+                                return false;
+                            }
+                            key.erase(0, first);
+                            key.erase(key.find_last_not_of(" \t\n\r") + 1);
+                            std::ranges::transform(
+                                key, key.begin(), [](unsigned char c) {
+                                    return static_cast<char>(std::tolower(c));
+                                });
+
+                            if (auto it = translate_map.find(key);
                                 it != translate_map.end()) {
                                 key_combination.push_back(it->second);
                             } else {
@@ -607,7 +600,8 @@ void mb_shell::menu_widget::update(ui::update_context &ctx) {
                     try {
                         wid->item.action.value()();
                     } catch (std::exception &e) {
-                        spdlog::error("Error in menu item action: {}", e.what());
+                        spdlog::error("Error in menu item action: {}",
+                                      e.what());
                     }
                 } else if (wid && wid->item.submenu && !wid->submenu_wid) {
                     wid->show_submenu(ctx);
@@ -776,12 +770,13 @@ void mb_shell::menu_widget::reset_animation(bool reverse) {
     // the show duration for the menu should be within 200ms
     float delay = std::min(200.f / children.size(), 30.f);
 
-    auto should_reverse = config::current->context_menu.reverse_if_open_to_up ? false : reverse;
+    auto should_reverse =
+        config::current->context_menu.reverse_if_open_to_up ? false : reverse;
 
     for (size_t i = 0; i < children.size(); i++) {
         auto child = children[i];
-        child->reset_appear_animation(delay *
-                                      (should_reverse ? children.size() - i : i));
+        child->reset_appear_animation(
+            delay * (should_reverse ? children.size() - i : i));
     }
 }
 std::pair<float, float> mb_shell::mouse_menu_widget_main::calculate_position(
@@ -998,8 +993,7 @@ void mb_shell::menu_item_normal_widget::reload_icon_img(
         icon_img = ui::LoadBitmapImage(ctx, (HBITMAP)item.icon_bitmap.value());
     else if (item.icon_svg) {
         std::string copy = item.icon_svg.value();
-        ui::nanovg_context::NSVGimageRAII svg(
-            nsvgParse(copy.data(), "px", 96));
+        ui::nanovg_context::NSVGimageRAII svg(nsvgParse(copy.data(), "px", 96));
         icon_img = ctx.imageFromSVG(svg.image, ctx.rt->dpi_scale);
     } else {
         icon_img = std::nullopt;
